@@ -193,3 +193,42 @@ class TestMultiSearch:
             warnings: list[dict] = []
             multi_search("test query", ["repo_a", "repo_b"], warnings=warnings)
             assert len(warnings) == 0
+
+    def test_skips_embed_query_when_all_indexes_no_embedding(
+        self, mock_list_indexes, mock_metadata
+    ):
+        """embed_query is not called when all indexes lack an embedding column."""
+        with patch(
+            "cocosearch.search.multi.check_embedding_column_exists", return_value=False
+        ):
+            with patch("cocosearch.search.multi.embed_query") as mock_embed:
+                with patch("cocosearch.search.multi.search", return_value=[]):
+                    multi_search("test query", ["repo_a", "repo_b"])
+
+        mock_embed.assert_not_called()
+
+    def test_warns_mixed_embedding_indexes(self, mock_list_indexes, mock_metadata):
+        """Warning emitted when mixing embedding and no-embedding indexes."""
+
+        def _has_embedding(table_name: str) -> bool:
+            return "repo_a" in table_name
+
+        with patch(
+            "cocosearch.search.multi.check_embedding_column_exists",
+            side_effect=_has_embedding,
+        ):
+            with patch(
+                "cocosearch.search.multi.embed_query", return_value=[0.1] * 768
+            ):
+                with patch("cocosearch.search.multi.search", return_value=[]):
+                    warnings: list[dict] = []
+                    multi_search(
+                        "test query",
+                        ["repo_a", "repo_b"],
+                        warnings=warnings,
+                    )
+
+        assert len(warnings) >= 1
+        mixed_warnings = [w for w in warnings if w["type"] == "mixed_embedding_indexes"]
+        assert mixed_warnings
+        assert "repo_b" in mixed_warnings[0]["no_embedding_indexes"]

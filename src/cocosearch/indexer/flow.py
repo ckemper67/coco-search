@@ -57,14 +57,20 @@ def get_table_name(index_name: str) -> str:
     return f"codeindex_{index_name}__{index_name}_chunks"
 
 
-def _ensure_chunks_table(conn, table_name: str, embedding_dim: int) -> None:
-    """Create the chunks table and vector index if they don't exist."""
+def _ensure_chunks_table(conn, table_name: str, embedding_dim: int | None) -> None:
+    """Create the chunks table and vector index if they don't exist.
+
+    When embedding_dim is None (provider=none), the embedding column and IVFFlat index
+    are omitted. The VECTOR type requires a concrete dimension so the column cannot
+    exist without one; its absence is the signal used at search time.
+    """
+    embedding_col = f"  embedding VECTOR({embedding_dim})," if embedding_dim else ""
     with conn.cursor() as cur:
         cur.execute(
             f"CREATE TABLE IF NOT EXISTS {table_name} ("
             "  filename TEXT NOT NULL,"
             "  location INT4RANGE NOT NULL,"
-            f"  embedding VECTOR({embedding_dim}),"
+            f"{embedding_col}"
             "  content_text TEXT,"
             "  content_tsv_input TEXT,"
             "  block_type TEXT,"
@@ -76,10 +82,11 @@ def _ensure_chunks_table(conn, table_name: str, embedding_dim: int) -> None:
             "  PRIMARY KEY (filename, location)"
             ")"
         )
-        cur.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_{table_name}_embedding "
-            f"ON {table_name} USING ivfflat (embedding vector_cosine_ops)"
-        )
+        if embedding_dim:
+            cur.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{table_name}_embedding "
+                f"ON {table_name} USING ivfflat (embedding vector_cosine_ops)"
+            )
     conn.commit()
 
 
@@ -181,8 +188,13 @@ def _index_file(
     splitter: RecursiveSplitter,
     chunk_size: int,
     chunk_overlap: int,
+    embedding_dim: int | None = None,
 ) -> int:
-    """Index a single file: chunk, embed, insert rows. Returns chunk count."""
+    """Index a single file: chunk, embed, insert rows. Returns chunk count.
+
+    When embedding_dim is None (provider=none), embed_batch is skipped and the
+    embedding column is omitted from the INSERT statement.
+    """
     language = extract_language(filename, content)
 
     chunks = splitter.split(
@@ -198,36 +210,61 @@ def _index_file(
     with conn.cursor() as cur:
         cur.execute(f"DELETE FROM {table_name} WHERE filename = %s", (filename,))
 
-        embedding_texts = [
-            add_filename_context(chunk.text, filename) for chunk in chunks
-        ]
-        embeddings = embed_batch(embedding_texts)
+        if embedding_dim is not None:
+            embedding_texts = [
+                add_filename_context(chunk.text, filename) for chunk in chunks
+            ]
+            embeddings = embed_batch(embedding_texts)
+        else:
+            embeddings = [None] * len(chunks)
 
         for chunk, embedding in zip(chunks, embeddings):
             metadata = extract_chunk_metadata(chunk.text, language)
             symbol_meta = extract_symbol_metadata(chunk.text, language)
             tsv_input = text_to_tsvector_sql(chunk.text, filename)
+            loc = Range(chunk.start.byte_offset, chunk.end.byte_offset)
 
-            cur.execute(
-                f"INSERT INTO {table_name}"
-                " (filename, location, embedding, content_text, content_tsv_input,"
-                "  block_type, hierarchy, language_id,"
-                "  symbol_type, symbol_name, symbol_signature)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (
-                    filename,
-                    Range(chunk.start.byte_offset, chunk.end.byte_offset),
-                    embedding,
-                    chunk.text,
-                    tsv_input,
-                    metadata.block_type,
-                    metadata.hierarchy,
-                    metadata.language_id,
-                    symbol_meta.symbol_type,
-                    symbol_meta.symbol_name,
-                    symbol_meta.symbol_signature,
-                ),
-            )
+            if embedding_dim is not None:
+                cur.execute(
+                    f"INSERT INTO {table_name}"
+                    " (filename, location, embedding, content_text, content_tsv_input,"
+                    "  block_type, hierarchy, language_id,"
+                    "  symbol_type, symbol_name, symbol_signature)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        filename,
+                        loc,
+                        embedding,
+                        chunk.text,
+                        tsv_input,
+                        metadata.block_type,
+                        metadata.hierarchy,
+                        metadata.language_id,
+                        symbol_meta.symbol_type,
+                        symbol_meta.symbol_name,
+                        symbol_meta.symbol_signature,
+                    ),
+                )
+            else:
+                cur.execute(
+                    f"INSERT INTO {table_name}"
+                    " (filename, location, content_text, content_tsv_input,"
+                    "  block_type, hierarchy, language_id,"
+                    "  symbol_type, symbol_name, symbol_signature)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        filename,
+                        loc,
+                        chunk.text,
+                        tsv_input,
+                        metadata.block_type,
+                        metadata.hierarchy,
+                        metadata.language_id,
+                        symbol_meta.symbol_type,
+                        symbol_meta.symbol_name,
+                        symbol_meta.symbol_signature,
+                    ),
+                )
 
     return len(chunks)
 
@@ -273,9 +310,12 @@ def run_index(
     from cocosearch.config.schema import default_model_for_provider
 
     embedding_provider = os.environ.get("COCOSEARCH_EMBEDDING_PROVIDER", "ollama")
-    embedding_model = os.environ.get(
-        "COCOSEARCH_EMBEDDING_MODEL", default_model_for_provider(embedding_provider)
-    )
+    if embedding_provider == "none":
+        embedding_model = None
+    else:
+        embedding_model = os.environ.get(
+            "COCOSEARCH_EMBEDDING_MODEL", default_model_for_provider(embedding_provider)
+        )
 
     check_infrastructure(
         db_url=get_database_url(),
@@ -292,19 +332,23 @@ def run_index(
     from cocosearch.management.metadata import get_index_metadata
 
     existing = get_index_metadata(index_name)
-    if existing and existing.get("embedding_model"):
-        if (
-            existing["embedding_model"] != embedding_model
-            or existing.get("embedding_provider") != embedding_provider
+    if existing:
+        existing_provider = existing.get("embedding_provider")
+        existing_model = existing.get("embedding_model")
+        provider_changed = existing_provider != embedding_provider
+        model_changed = existing_model != embedding_model
+        # warn when embedding config changed (including none <-> real provider transitions)
+        if (provider_changed or model_changed) and (
+            existing_model is not None or existing_provider == "none"
         ):
             logger.warning(
                 "Index '%s' was built with %s/%s but current config uses %s/%s. "
                 "Use --fresh to reindex with the new model.",
                 index_name,
-                existing.get("embedding_provider", "unknown"),
-                existing["embedding_model"],
+                existing_provider or "unknown",
+                existing_model or "none",
                 embedding_provider,
-                embedding_model,
+                embedding_model or "none",
             )
 
     db_url = get_database_url()
@@ -314,11 +358,14 @@ def run_index(
         _clean_tables(index_name, db_url)
         logger.info("Dropped all tables for index '%s' (--fresh)", index_name)
 
-    raw_model = os.environ.get(
-        "COCOSEARCH_EMBEDDING_MODEL",
-        default_model_for_provider(embedding_provider),
-    )
-    embedding_dim = _resolve_output_dimension(raw_model) or 768
+    if embedding_provider == "none":
+        embedding_dim = None
+    else:
+        raw_model = os.environ.get(
+            "COCOSEARCH_EMBEDDING_MODEL",
+            default_model_for_provider(embedding_provider),
+        )
+        embedding_dim = _resolve_output_dimension(raw_model) or 768
 
     with psycopg.connect(db_url) as conn:
         register_vector(conn)
@@ -385,6 +432,7 @@ def run_index(
                     splitter,
                     config.chunk_size,
                     config.chunk_overlap,
+                    embedding_dim=embedding_dim,
                 )
                 chunks_total += n
                 files_indexed += 1

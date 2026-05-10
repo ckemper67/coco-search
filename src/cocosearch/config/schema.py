@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-VALID_EMBEDDING_PROVIDERS = ("ollama", "openai", "openrouter")
+VALID_EMBEDDING_PROVIDERS = ("ollama", "openai", "openrouter", "none")
 
 _PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "ollama": "nomic-embed-text",
@@ -59,7 +59,7 @@ class EmbeddingSection(BaseModel):
                 f"Invalid embedding provider '{self.provider}'. "
                 f"Must be one of: {', '.join(VALID_EMBEDDING_PROVIDERS)}"
             )
-        if self.model is None:
+        if self.provider != "none" and self.model is None:
             self.model = default_model_for_provider(self.provider)
         return self
 

@@ -165,8 +165,12 @@ def _register_with_git(index_name: str, project_path: str) -> None:
     commit_hash = get_commit_hash(project_path)
     branch_commit_count = get_branch_commit_count(project_path)
     embed_provider = os.environ.get("COCOSEARCH_EMBEDDING_PROVIDER", "ollama")
-    embed_model = os.environ.get(
-        "COCOSEARCH_EMBEDDING_MODEL", default_model_for_provider(embed_provider)
+    embed_model = (
+        None
+        if embed_provider == "none"
+        else os.environ.get(
+            "COCOSEARCH_EMBEDDING_MODEL", default_model_for_provider(embed_provider)
+        )
     )
     register_index_path(
         index_name,
@@ -184,8 +188,12 @@ def _inject_configured_embedding(result: dict) -> None:
     from cocosearch.config.schema import default_model_for_provider
 
     provider = os.environ.get("COCOSEARCH_EMBEDDING_PROVIDER", "ollama")
-    model = os.environ.get(
-        "COCOSEARCH_EMBEDDING_MODEL", default_model_for_provider(provider)
+    model = (
+        None
+        if provider == "none"
+        else os.environ.get(
+            "COCOSEARCH_EMBEDDING_MODEL", default_model_for_provider(provider)
+        )
     )
     result["configured_embedding_provider"] = provider
     result["configured_embedding_model"] = model

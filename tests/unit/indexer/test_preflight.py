@@ -256,6 +256,36 @@ class TestCheckInfrastructure:
                     )
 
 
+    def test_none_provider_skips_embedding_checks(self):
+        """provider=none only checks PostgreSQL; Ollama and API key are not contacted."""
+        mock_conn = MagicMock()
+        with patch(
+            "cocosearch.indexer.preflight.psycopg.connect", return_value=mock_conn
+        ):
+            with patch(
+                "cocosearch.indexer.preflight.urllib.request.urlopen"
+            ) as mock_urlopen:
+                check_infrastructure(
+                    "postgresql://localhost/test",
+                    None,
+                    provider="none",
+                )
+                mock_urlopen.assert_not_called()
+
+    def test_none_provider_still_checks_postgres(self):
+        """provider=none still validates PostgreSQL connectivity."""
+        with patch(
+            "cocosearch.indexer.preflight.psycopg.connect",
+            side_effect=psycopg.OperationalError("refused"),
+        ):
+            with pytest.raises(ConnectionError, match="PostgreSQL"):
+                check_infrastructure(
+                    "postgresql://localhost/test",
+                    None,
+                    provider="none",
+                )
+
+
 class TestCheckApiKey:
     """Tests for check_api_key."""
 

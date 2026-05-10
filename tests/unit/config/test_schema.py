@@ -178,6 +178,21 @@ class TestEmbeddingSection:
         with pytest.raises(ValidationError):
             EmbeddingSection(baseUrl=8080)
 
+    def test_provider_none_accepted(self):
+        """provider=none is valid and enables keyword-only mode."""
+        section = EmbeddingSection(provider="none")
+        assert section.provider == "none"
+
+    def test_provider_none_model_stays_none(self):
+        """provider=none leaves model as None (no default model lookup)."""
+        section = EmbeddingSection(provider="none")
+        assert section.model is None
+
+    def test_provider_invalid_still_rejected(self):
+        """Unrecognized provider values are still rejected."""
+        with pytest.raises(ValidationError, match="Invalid embedding provider"):
+            EmbeddingSection(provider="notavalid")
+
 
 class TestLoggingSection:
     """Test LoggingSection model."""

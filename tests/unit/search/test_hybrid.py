@@ -1,8 +1,11 @@
 """Tests for hybrid search definition boost functionality."""
 
+from unittest.mock import patch
+
 from cocosearch.search.hybrid import (
     HybridSearchResult,
     apply_definition_boost,
+    execute_vector_search,
 )
 
 
@@ -187,3 +190,43 @@ class TestApplyDefinitionBoost:
         assert result.symbol_type == "method"
         assert result.symbol_name == "Foo.bar"
         assert result.symbol_signature == "def bar(self, x: int) -> str"
+
+
+class TestNoEmbeddingVectorSearch:
+    """Tests for execute_vector_search with no-embedding indexes."""
+
+    def test_returns_empty_when_no_embedding_column(self):
+        """execute_vector_search returns [] without hitting DB when embedding column absent."""
+        with patch(
+            "cocosearch.search.hybrid.check_embedding_column_exists",
+            return_value=False,
+        ):
+            with patch("cocosearch.search.hybrid.get_connection_pool") as mock_pool:
+                result = execute_vector_search(
+                    "test query",
+                    "codeindex_testindex__testindex_chunks",
+                )
+
+        assert result == []
+        mock_pool.assert_not_called()
+
+    def test_proceeds_normally_when_embedding_column_exists(self):
+        """execute_vector_search queries DB when embedding column is present."""
+        with patch(
+            "cocosearch.search.hybrid.check_embedding_column_exists",
+            return_value=True,
+        ):
+            with patch(
+                "cocosearch.search.hybrid.embed_query", return_value=[0.1] * 768
+            ):
+                with patch(
+                    "cocosearch.search.hybrid.get_connection_pool"
+                ) as mock_pool:
+                    mock_conn = mock_pool.return_value.connection.return_value.__enter__.return_value
+                    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+                    mock_cur.fetchall.return_value = []
+                    execute_vector_search(
+                        "test query",
+                        "codeindex_testindex__testindex_chunks",
+                    )
+                    mock_pool.assert_called_once()

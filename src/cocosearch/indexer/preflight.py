@@ -34,6 +34,8 @@ def check_infrastructure(
     (local OpenAI-compatible server, key optional).
     """
     check_postgres(db_url)
+    if provider == "none":
+        return
     if provider == "ollama":
         resolved_url = ollama_url or DEFAULT_OLLAMA_URL
         check_ollama(resolved_url)

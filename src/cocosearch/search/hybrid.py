@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from cocosearch.indexer.embedder import embed_query
 from cocosearch.search.db import (
     check_column_exists,
+    check_embedding_column_exists,
     check_symbol_columns_exist,
     get_connection_pool,
     get_table_name,
@@ -232,6 +233,9 @@ def execute_vector_search(
     Returns:
         List of VectorResult ordered by similarity (highest first).
     """
+    if not check_embedding_column_exists(table_name):
+        return []
+
     pool = get_connection_pool()
 
     # Embed query (skip if pre-computed)

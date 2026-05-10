@@ -11,6 +11,7 @@ from cocosearch.indexer.embedder import embed_query
 from cocosearch.search.cache import get_query_cache
 from cocosearch.search.db import (
     check_column_exists,
+    check_embedding_column_exists,
     check_symbol_columns_exist,
     get_connection_pool,
     get_table_name,
@@ -337,6 +338,16 @@ def search(
 
     pool = get_connection_pool()
     table_name = get_table_name(index_name)
+
+    # Force keyword-only search for indexes built without embeddings (provider=none)
+    if not check_embedding_column_exists(table_name):
+        if use_hybrid is False:
+            logger.warning(
+                "use_hybrid=False requested but index '%s' has no embedding column; "
+                "using keyword-only search",
+                index_name,
+            )
+        use_hybrid = True
 
     # Validate symbol filter (requires v1.7+ index with symbol columns)
     if symbol_type is not None or symbol_name is not None:

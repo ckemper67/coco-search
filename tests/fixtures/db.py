@@ -24,12 +24,17 @@ def reset_search_module_state():
     and ensures test isolation for module-level state.
     """
     import cocosearch.search.query as query_module
+    import cocosearch.search.hybrid as hybrid_module
+    import cocosearch.search.multi as multi_module
     import cocosearch.search.cache as cache_module
     import cocosearch.search.db as db_module
 
     with (
         patch.object(query_module, "check_column_exists", return_value=True),
         patch.object(query_module, "check_symbol_columns_exist", return_value=False),
+        patch.object(query_module, "check_embedding_column_exists", return_value=True),
+        patch.object(hybrid_module, "check_embedding_column_exists", return_value=True),
+        patch.object(multi_module, "check_embedding_column_exists", return_value=True),
     ):
         yield
 
@@ -40,8 +45,9 @@ def reset_search_module_state():
     # Clear query cache singleton to prevent test pollution
     cache_module._query_cache = None
 
-    # Clear symbol columns cache to prevent cross-test pollution
+    # Clear symbol columns and embedding column caches to prevent cross-test pollution
     db_module._symbol_columns_available = {}
+    db_module._embedding_column_available = {}
 
 
 @pytest.fixture

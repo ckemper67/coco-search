@@ -853,3 +853,47 @@ class TestDepsEnrichment:
         # .dependencies should stay None (not [])
         assert results[0].dependencies is None
         assert results[0].dependents is None
+
+
+class TestNoEmbeddingSearch:
+    """Tests for search() when the index has no embedding column (provider=none)."""
+
+    def test_forces_hybrid_when_no_embedding_column(self, mock_db_pool):
+        """search() routes through hybrid when embedding column absent; embed_query not called."""
+        pool, _cursor, _conn = mock_db_pool(results=[])
+
+        with patch("cocosearch.search.query.check_embedding_column_exists", return_value=False):
+            with patch("cocosearch.search.query.embed_query") as mock_embed:
+                with patch(
+                    "cocosearch.search.query.execute_hybrid_search", return_value=[]
+                ) as mock_hybrid:
+                    with patch(
+                        "cocosearch.search.query.get_connection_pool", return_value=pool
+                    ):
+                        search(query="test query", index_name="testindex")
+
+        mock_embed.assert_not_called()
+        mock_hybrid.assert_called_once()
+
+    def test_no_embedding_warns_when_use_hybrid_false(self, mock_db_pool, caplog):
+        """search() logs warning and overrides use_hybrid=False for no-embedding index."""
+        import logging
+
+        pool, _cursor, _conn = mock_db_pool(results=[])
+
+        with patch("cocosearch.search.query.check_embedding_column_exists", return_value=False):
+            with patch("cocosearch.search.query.embed_query"):
+                with patch(
+                    "cocosearch.search.query.execute_hybrid_search", return_value=[]
+                ):
+                    with patch(
+                        "cocosearch.search.query.get_connection_pool", return_value=pool
+                    ):
+                        with caplog.at_level(logging.WARNING):
+                            search(
+                                query="test query",
+                                index_name="testindex",
+                                use_hybrid=False,
+                            )
+
+        assert any("no embedding column" in record.message for record in caplog.records)

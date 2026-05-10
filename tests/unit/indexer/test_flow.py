@@ -157,6 +157,111 @@ class TestRunIndex:
         assert result["files_indexed"] < 10
 
 
+class TestNoEmbeddingMode:
+    """Tests for run_index with embedding.provider=none."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_preflight(self):
+        with patch("cocosearch.indexer.flow.check_infrastructure"):
+            yield
+
+    @pytest.fixture
+    def _mock_db(self):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (None,)
+        mock_cursor.fetchall.return_value = []
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        with patch("cocosearch.indexer.flow.psycopg.connect", return_value=mock_conn):
+            with patch("cocosearch.indexer.flow.register_vector"):
+                yield mock_conn, mock_cursor
+
+    def test_no_embedding_skips_embed_batch(self, tmp_path, _mock_db):
+        """With provider=none, embed_batch is never called during indexing."""
+        from cocosearch.indexer.flow import run_index
+
+        (tmp_path / "test.py").write_text("def hello(): pass")
+
+        with patch("cocosearch.indexer.flow.embed_batch") as mock_embed:
+            with patch(
+                "cocosearch.management.metadata.get_index_metadata", return_value=None
+            ):
+                with patch("cocosearch.indexer.flow.invalidate_index_cache"):
+                    with patch("cocosearch.indexer.flow.track_parse_results"):
+                        with patch.dict(
+                            "os.environ",
+                            {"COCOSEARCH_EMBEDDING_PROVIDER": "none"},
+                        ):
+                            run_index(
+                                index_name="testindex",
+                                codebase_path=str(tmp_path),
+                            )
+
+        mock_embed.assert_not_called()
+
+    def test_no_embedding_table_schema_has_no_vector_column(self, tmp_path, _mock_db):
+        """With provider=none, CREATE TABLE SQL has no VECTOR column or ivfflat index."""
+        from cocosearch.indexer.flow import run_index
+
+        (tmp_path / "test.py").write_text("def hello(): pass")
+        _, mock_cursor = _mock_db
+
+        with patch("cocosearch.indexer.flow.embed_batch"):
+            with patch(
+                "cocosearch.management.metadata.get_index_metadata", return_value=None
+            ):
+                with patch("cocosearch.indexer.flow.invalidate_index_cache"):
+                    with patch("cocosearch.indexer.flow.track_parse_results"):
+                        with patch.dict(
+                            "os.environ",
+                            {"COCOSEARCH_EMBEDDING_PROVIDER": "none"},
+                        ):
+                            run_index(
+                                index_name="testindex",
+                                codebase_path=str(tmp_path),
+                            )
+
+        all_sql = " ".join(
+            str(call.args[0]) for call in mock_cursor.execute.call_args_list
+        )
+        assert "VECTOR(" not in all_sql
+        assert "ivfflat" not in all_sql
+
+    def test_no_embedding_insert_omits_embedding_column(self, tmp_path, _mock_db):
+        """With provider=none, INSERT statement does not reference the embedding column."""
+        from cocosearch.indexer.flow import run_index
+
+        (tmp_path / "test.py").write_text("def hello(): pass")
+        _, mock_cursor = _mock_db
+
+        with patch("cocosearch.indexer.flow.embed_batch"):
+            with patch(
+                "cocosearch.management.metadata.get_index_metadata", return_value=None
+            ):
+                with patch("cocosearch.indexer.flow.invalidate_index_cache"):
+                    with patch("cocosearch.indexer.flow.track_parse_results"):
+                        with patch.dict(
+                            "os.environ",
+                            {"COCOSEARCH_EMBEDDING_PROVIDER": "none"},
+                        ):
+                            run_index(
+                                index_name="testindex",
+                                codebase_path=str(tmp_path),
+                            )
+
+        insert_calls = [
+            str(call.args[0])
+            for call in mock_cursor.execute.call_args_list
+            if "INSERT INTO" in str(call.args[0])
+        ]
+        assert insert_calls, "Expected at least one INSERT call"
+        for sql in insert_calls:
+            assert "embedding" not in sql.lower()
+
+
 class TestCustomLanguageIntegration:
     """Tests for custom language integration in flow module."""
 

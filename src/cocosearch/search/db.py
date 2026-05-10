@@ -29,6 +29,9 @@ _pool_lock = threading.Lock()
 # Module-level cache for symbol column availability per table
 _symbol_columns_available: dict[str, bool] = {}
 
+# Module-level cache for embedding column availability per table
+_embedding_column_available: dict[str, bool] = {}
+
 
 def get_connection_pool() -> ConnectionPool:
     """Get or create the database connection pool.
@@ -197,3 +200,28 @@ def reset_symbol_columns_cache() -> None:
     """
     global _symbol_columns_available
     _symbol_columns_available = {}
+
+
+def check_embedding_column_exists(table_name: str) -> bool:
+    """Check if the embedding column exists (i.e., index was built with embeddings).
+
+    Uses module-level caching. Returns False for no-embedding indexes (provider=none).
+
+    Args:
+        table_name: Full table name (e.g., "codeindex_myproject__myproject_chunks")
+
+    Returns:
+        True if the embedding column exists, False for no-embedding indexes.
+    """
+    if table_name not in _embedding_column_available:
+        _embedding_column_available[table_name] = check_column_exists(table_name, "embedding")
+    return _embedding_column_available[table_name]
+
+
+def reset_embedding_column_cache() -> None:
+    """Reset the embedding column availability cache.
+
+    Used by tests to ensure clean state between test runs.
+    """
+    global _embedding_column_available
+    _embedding_column_available = {}

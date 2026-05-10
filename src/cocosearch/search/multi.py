@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from cocosearch.indexer.embedder import embed_query
 from cocosearch.management.discovery import list_indexes
 from cocosearch.management.metadata import get_index_metadata
+from cocosearch.search.db import check_embedding_column_exists, get_table_name as _get_table_name
 from cocosearch.search.query import SearchResult, search
 
 logger = logging.getLogger(__name__)
@@ -121,8 +122,26 @@ def multi_search(
                 }
             )
 
-    # Pre-compute query embedding once
-    query_embedding = embed_query(query)
+    # Pre-compute query embedding once -- skip if all indexes lack embedding columns
+    any_has_embedding = any(
+        check_embedding_column_exists(_get_table_name(idx)) for idx in index_names
+    )
+    query_embedding = embed_query(query) if any_has_embedding else None
+
+    # Warn when mixing embedding and no-embedding indexes (scores not comparable)
+    no_embed_indexes = [
+        idx for idx in index_names
+        if not check_embedding_column_exists(_get_table_name(idx))
+    ]
+    if no_embed_indexes and any_has_embedding and warnings is not None:
+        warnings.append({
+            "type": "mixed_embedding_indexes",
+            "warning": (
+                "Cross-index search with mixed embedding support -- "
+                "keyword-only results mixed with semantic results"
+            ),
+            "no_embedding_indexes": no_embed_indexes,
+        })
 
     # Request more results per index for better candidate pool
     per_index_limit = limit * 2
