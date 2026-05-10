@@ -58,8 +58,13 @@ def parse_env_value(raw: str, field_type: type) -> Any:
         >>> parse_env_value('["*.py"]', list[str])
         ['*.py']
     """
-    # Handle None indicators
-    if raw.lower() in ("", "null", "none"):
+    # Handle None indicators.
+    # For str fields, "none" is treated as a valid literal (e.g. provider=none for
+    # keyword-only mode); only "" and "null" are null indicators for strings.
+    # For all other field types, "none" is also a null indicator.
+    if raw == "" or raw.lower() == "null":
+        return None
+    if raw.lower() == "none" and field_type is not str:
         return None
 
     # Get the origin type for generic types like list[str]
@@ -272,8 +277,12 @@ class ConfigResolver:
             "embedding.baseUrl", None, "COCOSEARCH_EMBEDDING_BASE_URL"
         )
 
-        os.environ["COCOSEARCH_EMBEDDING_PROVIDER"] = str(provider)
-        os.environ["COCOSEARCH_EMBEDDING_MODEL"] = str(model)
+        if provider is not None:
+            os.environ["COCOSEARCH_EMBEDDING_PROVIDER"] = provider
+        if model is not None:
+            os.environ["COCOSEARCH_EMBEDDING_MODEL"] = model
+        else:
+            os.environ.pop("COCOSEARCH_EMBEDDING_MODEL", None)
         if dim is not None:
             os.environ["COCOSEARCH_EMBEDDING_OUTPUT_DIMENSION"] = str(dim)
         if base_url is not None:

@@ -36,6 +36,7 @@ from cocosearch.handlers import get_custom_languages, extract_chunk_metadata
 from cocosearch.indexer.file_filter import build_exclude_patterns
 from cocosearch.indexer.symbols import extract_symbol_metadata
 from cocosearch.indexer.schema_migration import (
+    ensure_hybrid_search_schema,
     ensure_symbol_columns,
     ensure_parse_results_table,
 )
@@ -368,9 +369,11 @@ def run_index(
         embedding_dim = _resolve_output_dimension(raw_model) or 768
 
     with psycopg.connect(db_url) as conn:
-        register_vector(conn)
+        if embedding_dim is not None:
+            register_vector(conn)
         _ensure_chunks_table(conn, table_name, embedding_dim)
         _ensure_tracking_table(conn, index_name)
+        ensure_hybrid_search_schema(conn, table_name)
         ensure_symbol_columns(conn, table_name)
         ensure_parse_results_table(conn, index_name)
 
@@ -414,7 +417,8 @@ def run_index(
     files_indexed = 0
     cancelled = False
     with psycopg.connect(db_url) as conn:
-        register_vector(conn)
+        if embedding_dim is not None:
+            register_vector(conn)
         tracking_table = f"cocosearch_index_tracking_{index_name}"
 
         for filename in files_to_index:

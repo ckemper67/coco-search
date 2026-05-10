@@ -348,6 +348,9 @@ def search(
                 index_name,
             )
         use_hybrid = True
+        # RRF scores for keyword-only results are ~0.01-0.05, far below the default
+        # min_score of 0.3 (calibrated for vector cosine similarity). Reset to 0.
+        min_score = 0.0
 
     # Validate symbol filter (requires v1.7+ index with symbol columns)
     if symbol_type is not None or symbol_name is not None:

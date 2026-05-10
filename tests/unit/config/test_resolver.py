@@ -93,8 +93,10 @@ class TestParseEnvValue:
         """Test None value indicators."""
         assert parse_env_value("", str) is None
         assert parse_env_value("null", str) is None
-        assert parse_env_value("none", str) is None
-        assert parse_env_value("None", str) is None
+        # "none"/"None" is NOT a null indicator for str fields -- it is a valid
+        # literal value (e.g. COCOSEARCH_EMBEDDING_PROVIDER=none for keyword-only mode)
+        assert parse_env_value("none", str) == "none"
+        assert parse_env_value("None", str) == "None"
 
 
 class TestConfigResolver:

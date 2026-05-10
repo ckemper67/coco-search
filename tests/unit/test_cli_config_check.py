@@ -26,6 +26,13 @@ def _mock_tags_response(models=None):
     return resp
 
 
+@pytest.fixture(autouse=True)
+def _no_project_config():
+    """Prevent tests from reading the real cocosearch.yaml in the project root."""
+    with patch("cocosearch.cli.find_config_file", return_value=None):
+        yield
+
+
 class TestConfigCheckConnectivity:
     """Tests for connectivity checks in config_check_command."""
 
@@ -258,8 +265,8 @@ class TestConfigCheckLinkedIndexes:
         config = MagicMock()
         config.linkedIndexes = linked or []
         config.embedding = MagicMock()
-        config.embedding.provider = None
-        config.embedding.model = None
+        config.embedding.provider = "ollama"
+        config.embedding.model = "nomic-embed-text"
         config.embedding.baseUrl = None
         config.logging = MagicMock()
         config.logging.file = False

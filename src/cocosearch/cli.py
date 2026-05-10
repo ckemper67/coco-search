@@ -2154,6 +2154,12 @@ def config_check_command(args: argparse.Namespace) -> int:
                 "[dim]- skipped[/dim]",
                 "Ollama is unreachable",
             )
+    elif provider == "none":
+        conn_table.add_row(
+            "Embedding",
+            "[dim]- skipped[/dim]",
+            "Keyword-only mode (provider: none)",
+        )
     else:
         # Remote provider: check API key
         api_key = os.getenv("COCOSEARCH_EMBEDDING_API_KEY")
