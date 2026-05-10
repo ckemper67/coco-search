@@ -3234,12 +3234,13 @@ def run_server(
     )
     try:
         from cocosearch.config import find_config_file, load_config
+        from cocosearch.config.resolver import ConfigResolver
 
         cfg_path = find_config_file()
-        if cfg_path:
-            cfg = load_config(cfg_path)
-            if cfg.logging.file:
-                log_file_enabled = True
+        cfg = load_config(cfg_path)
+        if cfg_path and cfg.logging.file:
+            log_file_enabled = True
+        ConfigResolver(cfg, cfg_path).bridge_embedding_config()
     except Exception:
         pass
 
