@@ -328,15 +328,18 @@ def _check_infra_sync() -> dict:
 
     # Check embedding provider
     embed_status: dict = {"ok": True, "provider": provider, "model": model}
-    try:
-        if provider == "ollama":
-            check_ollama(ollama_url)
-            check_ollama_model(ollama_url, model)
-        else:
-            check_api_key(provider)
-    except ConnectionError as e:
-        embed_status["ok"] = False
-        embed_status["error"] = str(e)
+    if provider == "none":
+        embed_status["mode"] = "keyword-only"
+    else:
+        try:
+            if provider == "ollama":
+                check_ollama(ollama_url)
+                check_ollama_model(ollama_url, model)
+            else:
+                check_api_key(provider)
+        except ConnectionError as e:
+            embed_status["ok"] = False
+            embed_status["error"] = str(e)
 
     return {
         "database": db_status,
@@ -2806,6 +2809,21 @@ def index_codebase(
             set_index_status(index_name, "indexing")
         except Exception:
             pass  # Best-effort — don't block indexing on metadata failures
+
+        # Resolve embedding config from the project's cocosearch.yaml (if any)
+        # so that provider=none / custom providers are honoured per-project.
+        try:
+            from pathlib import Path as _Path
+
+            from cocosearch.config import load_config
+            from cocosearch.config.resolver import ConfigResolver
+
+            cfg_path = _Path(path) / "cocosearch.yaml"
+            cfg_path = cfg_path if cfg_path.exists() else None
+            cfg = load_config(cfg_path)
+            ConfigResolver(cfg, cfg_path).bridge_embedding_config()
+        except Exception:
+            pass
 
         # Run indexing with default config
         indexing_failed = False
