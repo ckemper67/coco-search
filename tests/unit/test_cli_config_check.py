@@ -244,6 +244,30 @@ class TestConfigCheckProvider:
         assert "openrouter" in output
         assert "COCOSEARCH_EMBEDDING_PROVIDER" in output
 
+    def test_none_provider_shows_keyword_only_mode(self, capsys, monkeypatch):
+        """provider=none skips all embedding checks and shows keyword-only row."""
+        monkeypatch.setenv("COCOSEARCH_EMBEDDING_PROVIDER", "none")
+        monkeypatch.delenv("COCOSEARCH_EMBEDDING_API_KEY", raising=False)
+
+        mock_conn = MagicMock()
+        with patch(
+            "cocosearch.indexer.preflight.psycopg.connect", return_value=mock_conn
+        ):
+            with patch(
+                "cocosearch.indexer.preflight.urllib.request.urlopen"
+            ) as mock_urlopen:
+                result = config_check_command(_make_args())
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "Keyword-only" in output
+        # No Ollama or API key row
+        assert "Ollama" not in output
+        assert "API Key" not in output
+        # Ollama URL should not appear (no embedding provider needed)
+        assert "COCOSEARCH_OLLAMA_URL" not in output
+        mock_urlopen.assert_not_called()
+
 
 def _patch_all_services_ok():
     """Context manager that patches all services as reachable."""

@@ -271,6 +271,20 @@ class TestConfigResolver:
 
         assert source == "config"
 
+    def test_none_provider_env_var_resolves_as_string(self, monkeypatch):
+        """COCOSEARCH_EMBEDDING_PROVIDER=none resolves to the string 'none', not Python None."""
+        monkeypatch.setenv("COCOSEARCH_EMBEDDING_PROVIDER", "none")
+        config = CocoSearchConfig()
+        resolver = ConfigResolver(config)
+
+        provider, source = resolver.resolve(
+            "embedding.provider", None, "COCOSEARCH_EMBEDDING_PROVIDER"
+        )
+
+        assert provider == "none"
+        assert provider is not None
+        assert "env" in source
+
     def test_all_field_paths(self):
         """Test listing all resolvable field paths."""
         config = CocoSearchConfig()
@@ -399,3 +413,26 @@ class TestBridgeEmbeddingConfig:
         resolver.bridge_embedding_config()
 
         assert "COCOSEARCH_EMBEDDING_BASE_URL" not in os.environ
+
+    def test_bridge_none_provider_sets_env_var(self):
+        """provider=none bridges COCOSEARCH_EMBEDDING_PROVIDER=none to env."""
+        config = CocoSearchConfig()
+        config.embedding.provider = "none"
+        config.embedding.model = None
+        resolver = ConfigResolver(config, config_path=Path("/config.yaml"))
+
+        provider, model = resolver.bridge_embedding_config()
+
+        assert provider == "none"
+        assert os.environ["COCOSEARCH_EMBEDDING_PROVIDER"] == "none"
+
+    def test_bridge_none_provider_does_not_set_model_env_var(self):
+        """provider=none leaves COCOSEARCH_EMBEDDING_MODEL unset (no default model for none)."""
+        config = CocoSearchConfig()
+        config.embedding.provider = "none"
+        config.embedding.model = None
+        resolver = ConfigResolver(config, config_path=Path("/config.yaml"))
+
+        resolver.bridge_embedding_config()
+
+        assert "COCOSEARCH_EMBEDDING_MODEL" not in os.environ

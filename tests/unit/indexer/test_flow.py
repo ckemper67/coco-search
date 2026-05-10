@@ -230,6 +230,32 @@ class TestNoEmbeddingMode:
         assert "VECTOR(" not in all_sql
         assert "ivfflat" not in all_sql
 
+    def test_no_embedding_register_vector_not_called(self, tmp_path, _mock_db):
+        """With provider=none, register_vector is never called (no VECTOR type needed)."""
+        from cocosearch.indexer.flow import run_index
+
+        (tmp_path / "test.py").write_text("def hello(): pass")
+
+        with patch("cocosearch.indexer.flow.embed_batch"):
+            with patch(
+                "cocosearch.management.metadata.get_index_metadata", return_value=None
+            ):
+                with patch("cocosearch.indexer.flow.invalidate_index_cache"):
+                    with patch("cocosearch.indexer.flow.track_parse_results"):
+                        with patch.dict(
+                            "os.environ",
+                            {"COCOSEARCH_EMBEDDING_PROVIDER": "none"},
+                        ):
+                            with patch(
+                                "cocosearch.indexer.flow.register_vector"
+                            ) as mock_reg:
+                                run_index(
+                                    index_name="testindex",
+                                    codebase_path=str(tmp_path),
+                                )
+
+        mock_reg.assert_not_called()
+
     def test_no_embedding_insert_omits_embedding_column(self, tmp_path, _mock_db):
         """With provider=none, INSERT statement does not reference the embedding column."""
         from cocosearch.indexer.flow import run_index
